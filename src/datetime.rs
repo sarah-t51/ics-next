@@ -32,8 +32,15 @@ impl DateTimeValue {
         if !(1..=12).contains(&month) {
             return Err(format!("month {:02} is out of range (expected 01-12)", month));
         }
-        if !(1..=31).contains(&day) {
-            return Err(format!("day {:02} is out of range (expected 01-31)", day));
+        let max_day = days_in_month(year, month);
+        if day < 1 || day > max_day {
+            return Err(format!(
+                "day {:02} is out of range for {} {} (that month has {} days)",
+                day,
+                MONTH_NAMES[(month - 1) as usize],
+                year,
+                max_day
+            ));
         }
 
         let (hour, minute, second) = match time_part {
@@ -60,6 +67,30 @@ impl DateTimeValue {
         };
 
         Ok(DateTimeValue { year, month, day, hour, minute, second })
+    }
+}
+
+const MONTH_NAMES: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+];
+
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap_year(year) {
+                29
+            } else {
+                28
+            }
+        }
+        _ => panic!("days_in_month called with out-of-range month {}", month),
     }
 }
 
@@ -109,4 +140,46 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if m <= 2 { y + 1 } else { y };
     (year as i32, m as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_leap_day_on_leap_year() {
+        assert!(DateTimeValue::parse("20240229").is_ok());
+        assert!(DateTimeValue::parse("20000229").is_ok());
+    }
+
+    #[test]
+    fn rejects_leap_day_on_non_leap_year() {
+        let err = DateTimeValue::parse("20230229").unwrap_err();
+        assert!(err.contains("February 2023"), "unexpected message: {}", err);
+
+        // divisible by 100 but not 400: not a leap year
+        let err = DateTimeValue::parse("19000229").unwrap_err();
+        assert!(err.contains("February 1900"), "unexpected message: {}", err);
+    }
+
+    #[test]
+    fn rejects_31st_of_short_months() {
+        for month in ["04", "06", "09", "11"] {
+            let value = format!("2025{}31", month);
+            assert!(DateTimeValue::parse(&value).is_err());
+        }
+    }
+
+    #[test]
+    fn accepts_31st_of_long_months() {
+        for month in ["01", "03", "05", "07", "08", "10", "12"] {
+            let value = format!("2025{}31", month);
+            assert!(DateTimeValue::parse(&value).is_ok());
+        }
+    }
+
+    #[test]
+    fn day_zero_is_rejected() {
+        assert!(DateTimeValue::parse("20250100").is_err());
+    }
 }

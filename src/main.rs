@@ -1,5 +1,6 @@
 mod datetime;
 mod parser;
+mod rrule;
 
 use datetime::DateTimeValue;
 use std::env;
@@ -78,9 +79,12 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut upcoming: Vec<&parser::VEvent> =
-        events.iter().filter(|e| e.start >= reference).collect();
-    upcoming.sort_by_key(|e| e.start);
+    // One entry per event: its next occurrence, so a recurring event shows up once.
+    let mut upcoming: Vec<(DateTimeValue, &parser::VEvent)> = events
+        .iter()
+        .filter_map(|e| e.next_start(reference).map(|start| (start, e)))
+        .collect();
+    upcoming.sort_by_key(|(start, _)| *start);
 
     if upcoming.is_empty() {
         println!("no upcoming events found in {}", path);
@@ -88,12 +92,12 @@ fn main() -> ExitCode {
     }
 
     if show_all {
-        for event in &upcoming {
-            println!("{}  {}", event.start, event.summary);
+        for (start, event) in &upcoming {
+            println!("{}  {}", start, event.summary);
         }
     } else {
-        let next = upcoming[0];
-        println!("{}  {}", next.start, next.summary);
+        let (start, next) = upcoming[0];
+        println!("{}  {}", start, next.summary);
     }
 
     ExitCode::SUCCESS

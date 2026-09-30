@@ -56,8 +56,12 @@ actual problem, not just the start of the line.
 
 ## What it does not do (yet)
 
-- No `RRULE` support — recurring events are read as their single `DTSTART`
-  occurrence and nothing else.
+- `RRULE` covers `FREQ=DAILY|WEEKLY|MONTHLY` with `INTERVAL`, `COUNT` and
+  `UNTIL`. Anything else (`BYDAY`, `BYMONTHDAY`, `YEARLY`, ...) is rejected
+  with an error pointing at the part, rather than silently ignored. Monthly
+  rules skip months that don't have the start day (the 31st), as the RFC
+  says. `EXDATE` and `RDATE` are not read. A recurring event is listed once,
+  at its next occurrence, even with `--all`.
 - No timezone resolution. `TZID` parameters are parsed and then ignored;
   every date-time is compared as if it were UTC. Fine if your calendar is
   all UTC or all one timezone; wrong otherwise. This is the main thing I'd

@@ -1,4 +1,5 @@
 use crate::datetime::DateTimeValue;
+use crate::rrule::RRule;
 use std::fmt;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +29,18 @@ pub struct VEvent {
     pub uid: Option<String>,
     pub start: DateTimeValue,
     pub end: Option<DateTimeValue>,
+    pub rrule: Option<RRule>,
+}
+
+impl VEvent {
+    // The occurrence that matters for "what's next": the first one at or after
+    // `reference`, expanding the RRULE if there is one.
+    pub fn next_start(&self, reference: DateTimeValue) -> Option<DateTimeValue> {
+        match &self.rrule {
+            Some(rule) => rule.next_on_or_after(self.start, reference),
+            None => (self.start >= reference).then_some(self.start),
+        }
+    }
 }
 
 struct RawLine<'a> {
@@ -164,6 +177,7 @@ struct PartialEvent {
     uid: Option<String>,
     dtstart: Option<DateTimeValue>,
     dtend: Option<DateTimeValue>,
+    rrule: Option<RRule>,
 }
 
 impl PartialEvent {
@@ -175,6 +189,7 @@ impl PartialEvent {
             uid: None,
             dtstart: None,
             dtend: None,
+            rrule: None,
         }
     }
 
@@ -187,6 +202,18 @@ impl PartialEvent {
                     ParseError {
                         pos: Pos { line: content.pos.line, col: content.value_col },
                         message: format!("invalid DTSTART: {}", msg),
+                        line_text: first_physical_line(line),
+                    }
+                })?);
+            }
+            "RRULE" => {
+                self.rrule = Some(RRule::parse(&content.value).map_err(|(offset, msg)| {
+                    ParseError {
+                        pos: Pos {
+                            line: content.pos.line,
+                            col: clamp_col(content.value_col + offset, line.first_physical_len),
+                        },
+                        message: format!("invalid RRULE: {}", msg),
                         line_text: first_physical_line(line),
                     }
                 })?);
@@ -216,6 +243,7 @@ impl PartialEvent {
             uid: self.uid,
             start: dtstart,
             end: self.dtend,
+            rrule: self.rrule,
         })
     }
 }

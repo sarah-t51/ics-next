@@ -68,6 +68,40 @@ impl DateTimeValue {
 
         Ok(DateTimeValue { year, month, day, hour, minute, second })
     }
+
+    // True when the text is a bare DATE with no time component.
+    pub fn is_date_only(value: &str) -> bool {
+        !value.contains('T')
+    }
+
+    pub fn add_days(&self, n: i64) -> DateTimeValue {
+        let days = days_from_civil(self.year, self.month, self.day) + n;
+        let secs_of_day = (self.hour * 3600 + self.minute * 60 + self.second) as i64;
+        from_unix_time(days * 86400 + secs_of_day)
+    }
+
+    // Returns None when the resulting month has no such day (e.g. the 31st
+    // plus one month), which RRULE semantics treat as "skip this occurrence".
+    pub fn add_months(&self, n: i64) -> Option<DateTimeValue> {
+        let index = self.year as i64 * 12 + (self.month as i64 - 1) + n;
+        let year = index.div_euclid(12) as i32;
+        let month = index.rem_euclid(12) as u32 + 1;
+        if self.day > days_in_month(year, month) {
+            return None;
+        }
+        Some(DateTimeValue { year, month, ..*self })
+    }
+}
+
+// Inverse of civil_from_days, also from Hinnant's date algorithms.
+fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year as i64 - 1 } else { year as i64 };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let m = month as i64;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
 }
 
 const MONTH_NAMES: [&str; 12] = [
@@ -181,5 +215,30 @@ mod tests {
     #[test]
     fn day_zero_is_rejected() {
         assert!(DateTimeValue::parse("20250100").is_err());
+    }
+
+    #[test]
+    fn add_days_crosses_month_and_year_boundaries() {
+        let d = DateTimeValue::parse("20241231T230000Z").unwrap();
+        assert_eq!(d.add_days(1), DateTimeValue::parse("20250101T230000Z").unwrap());
+        let d = DateTimeValue::parse("20240228").unwrap();
+        assert_eq!(d.add_days(2), DateTimeValue::parse("20240301").unwrap());
+        assert_eq!(d.add_days(-59), DateTimeValue::parse("20231231").unwrap());
+    }
+
+    #[test]
+    fn add_months_skips_missing_days() {
+        let d = DateTimeValue::parse("20250131").unwrap();
+        assert!(d.add_months(1).is_none());
+        assert_eq!(d.add_months(2), Some(DateTimeValue::parse("20250331").unwrap()));
+        assert_eq!(d.add_months(12), Some(DateTimeValue::parse("20260131").unwrap()));
+    }
+
+    #[test]
+    fn days_from_civil_round_trips() {
+        for days in [-800_000i64, -1, 0, 1, 19_000, 2_000_000] {
+            let (y, m, d) = civil_from_days(days);
+            assert_eq!(days_from_civil(y, m, d), days);
+        }
     }
 }
